@@ -33,16 +33,62 @@ export const IMAGE_EXTS = [
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff',
 ]
 
+/* ── Redundancy detection ───────────────────────────────── */
+
+/**
+ * Finds text lines that repeat suspiciously often (watermarks, boilerplate).
+ * Returns [{text, count}] sorted by frequency descending.
+ */
+export function detectRedundancies(text) {
+  if (!text) return []
+  const lines = text.split('\n')
+  const counts = new Map()
+
+  for (const raw of lines) {
+    const norm = raw.trim()
+    if (norm.length < 8) continue            // too short to be meaningful
+    if (/^#{1,6}\s/.test(norm)) continue     // heading
+    if (/^[-*_]{3,}$/.test(norm)) continue  // horizontal rule
+    if (/^\|[-:\s|]+\|$/.test(norm)) continue // table separator
+    counts.set(norm, (counts.get(norm) || 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .filter(([, c]) => c > 2)
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20)
+}
+
+/**
+ * Removes the given patterns from text and collapses leftover blank lines.
+ */
+export function cleanRedundancies(text, patterns) {
+  if (!text || !patterns.length) return text
+  const removeSet = new Set(patterns)
+  const lines = text.split('\n')
+  const filtered = lines.filter(l => !removeSet.has(l.trim()))
+
+  const out = []
+  let prevBlank = false
+  for (const l of filtered) {
+    const blank = !l.trim()
+    if (blank && prevBlank) continue
+    out.push(l)
+    prevBlank = blank
+  }
+  return out.join('\n')
+}
+
 /* ── PDF.js (via window global) ─────────────────────────── */
 
 function getPdfjs() {
   const lib = window.pdfjsLib
   if (!lib) {
     throw new Error(
-      'PDF.js failed to load. Make sure you have an internet connection and reload the page.'
+      'PDF.js no cargó. Verifica tu conexión y recarga la página.'
     )
   }
-  // Set worker URL once (same version as the CDN script in index.html)
   if (!lib.GlobalWorkerOptions.workerSrc) {
     lib.GlobalWorkerOptions.workerSrc =
       'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
@@ -61,7 +107,6 @@ function makeTurndown() {
     strongDelimiter: '**',
   })
 
-  // Table support
   td.addRule('tableCell', {
     filter: ['th', 'td'],
     replacement: (content) => ` ${content.replace(/\|/g, '\\|').trim()} |`,
@@ -91,30 +136,28 @@ export async function convertPDF(arrayBuffer, onProgress) {
   const data = new Uint8Array(arrayBuffer)
   const pdf = await pdfjsLib.getDocument({ data }).promise
   const totalPages = pdf.numPages
-  let output = '# Document\n\n'
+  // Only add a title header for multi-page documents
+  let output = totalPages > 1 ? '# Documento\n\n' : ''
 
   for (let i = 1; i <= totalPages; i++) {
-    onProgress(Math.round((i / totalPages) * 95), `Processing page ${i} of ${totalPages}…`)
+    onProgress(Math.round((i / totalPages) * 95), `Procesando página ${i} de ${totalPages}…`)
 
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
 
-    output += `## Page ${i}\n\n`
+    // Compact page divider instead of a heading per page
+    if (i > 1) output += '\n---\n\n'
 
-    // Reconstruct text with line breaks based on Y position changes
     let pageText = ''
     let lastY = null
     for (const item of content.items) {
       const y = item.transform?.[5] ?? null
-      if (lastY !== null && y !== null && Math.abs(y - lastY) > 8) {
-        pageText += '\n'
-      }
+      if (lastY !== null && y !== null && Math.abs(y - lastY) > 8) pageText += '\n'
       pageText += item.str
       if (item.hasEOL) pageText += '\n'
       lastY = y
     }
 
-    // Post-process: detect ALL-CAPS short lines as headings, dedupe blank lines
     const lines = pageText.split('\n').map(l => l.trim())
     const processed = []
     let prevWasEmpty = false
@@ -127,43 +170,43 @@ export async function convertPDF(arrayBuffer, onProgress) {
       }
       prevWasEmpty = false
 
+      // Heading: ALL-CAPS standalone line, reasonable length, no numbers/symbols only
       const isHeading =
-        line.length > 1 &&
-        line.length < 80 &&
+        line.length > 3 &&
+        line.length < 60 &&
         line === line.toUpperCase() &&
         /[A-Z]/.test(line)
 
-      processed.push(
-        isHeading
-          ? `### ${line.charAt(0) + line.slice(1).toLowerCase()}`
-          : line
+      processed.push(isHeading
+        ? `### ${line.charAt(0) + line.slice(1).toLowerCase()}`
+        : line
       )
     }
 
     output += processed.join('\n').trim() + '\n\n'
   }
 
-  return output
+  return output.trim()
 }
 
 export async function convertDOCX(arrayBuffer, onProgress) {
-  onProgress(10, 'Reading Word document…')
+  onProgress(10, 'Leyendo documento Word…')
 
   if (typeof mammoth?.convertToHtml !== 'function') {
-    throw new Error('mammoth failed to load. Try reloading the page.')
+    throw new Error('mammoth no cargó. Intenta recargar la página.')
   }
 
   const result = await mammoth.convertToHtml({ arrayBuffer })
-  onProgress(55, 'Converting HTML → Markdown…')
+  onProgress(55, 'Convirtiendo HTML → Markdown…')
 
   const markdown = makeTurndown().turndown(result.value)
-  onProgress(95, 'Finalizing…')
+  onProgress(95, 'Finalizando…')
 
   return markdown
 }
 
 export async function convertXLSX(arrayBuffer, onProgress) {
-  onProgress(15, 'Reading spreadsheet…')
+  onProgress(15, 'Leyendo hoja de cálculo…')
 
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheetNames = workbook.SheetNames
@@ -172,17 +215,17 @@ export async function convertXLSX(arrayBuffer, onProgress) {
   sheetNames.forEach((name, idx) => {
     onProgress(
       15 + Math.round(((idx + 1) / sheetNames.length) * 80),
-      `Processing sheet: ${name}…`
+      `Procesando hoja: ${name}…`
     )
 
     if (idx > 0) output += '\n\n---\n\n'
-    output += `## Sheet: ${name}\n\n`
+    output += `## Hoja: ${name}\n\n`
 
     const sheet = workbook.Sheets[name]
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
 
     if (!rows.length) {
-      output += '_Empty sheet_\n'
+      output += '_Hoja vacía_\n'
       return
     }
 
@@ -207,7 +250,7 @@ export async function convertXLSX(arrayBuffer, onProgress) {
 }
 
 export async function convertCSV(file, onProgress) {
-  onProgress(20, 'Parsing CSV…')
+  onProgress(20, 'Analizando CSV…')
   const text = await file.text()
 
   const parseRow = (row) => {
@@ -224,9 +267,9 @@ export async function convertCSV(file, onProgress) {
   }
 
   const rows = text.split('\n').filter(r => r.trim())
-  if (!rows.length) return '_Empty CSV_'
+  if (!rows.length) return '_CSV vacío_'
 
-  onProgress(60, 'Building Markdown table…')
+  onProgress(60, 'Construyendo tabla Markdown…')
 
   const headers = parseRow(rows[0])
   let output = `| ${headers.join(' | ')} |\n`
@@ -241,7 +284,7 @@ export async function convertCSV(file, onProgress) {
 }
 
 export async function convertPPTX(arrayBuffer, onProgress) {
-  onProgress(10, 'Opening PPTX archive…')
+  onProgress(10, 'Abriendo archivo PPTX…')
 
   const zip = await JSZip.loadAsync(arrayBuffer)
 
@@ -253,51 +296,81 @@ export async function convertPPTX(arrayBuffer, onProgress) {
       return na - nb
     })
 
-  if (!slideKeys.length) {
-    throw new Error('No slides found in this PPTX file.')
-  }
+  if (!slideKeys.length) throw new Error('No se encontraron diapositivas en este archivo PPTX.')
 
-  let output = '# Presentation\n\n'
+  // Placeholder types to skip (footers, slide numbers, dates)
+  const SKIP_PH = /type="(sldNum|dt|ftr|hf|sldImg)"/
+  // Title placeholder types
+  const TITLE_PH = /type="(title|ctrTitle)"/
+  // PowerPoint template boilerplate text to discard
+  const TEMPLATE_TEXT = /^(click\s+to|tap\s+to|haga\s+clic|añade?\s|add\s+(title|text|subtitle|content)|title\s*\d*|text\s*\d*|content\s*\d*)$/i
+
+  let output = '# Presentación\n\n'
 
   for (let i = 0; i < slideKeys.length; i++) {
     onProgress(
       10 + Math.round(((i + 1) / slideKeys.length) * 85),
-      `Processing slide ${i + 1} of ${slideKeys.length}…`
+      `Procesando diapositiva ${i + 1} de ${slideKeys.length}…`
     )
 
     const xml = await zip.files[slideKeys[i]].async('text')
-    const textMatches = xml.match(/<a:t[^>]*>([^<]*)<\/a:t>/g) || []
-    const texts = textMatches
-      .map(m => m.replace(/<[^>]*>/g, '').trim())
-      .filter(Boolean)
+    // Extract each shape block
+    const spBlocks = xml.match(/<p:sp[\s\S]*?<\/p:sp>/g) || []
 
-    if (!texts.length) continue
+    const titleTexts = []
+    const bodyTexts = []
 
-    const title = texts[0]
-    output += `## Slide ${i + 1}: ${title}\n\n`
+    for (const block of spBlocks) {
+      if (SKIP_PH.test(block)) continue
 
-    for (let j = 1; j < texts.length; j++) {
-      if (texts[j] !== title) output += `- ${texts[j]}\n`
+      const isTitle = TITLE_PH.test(block)
+
+      const texts = (block.match(/<a:t[^>]*>([^<]*)<\/a:t>/g) || [])
+        .map(m => m.replace(/<[^>]*>/g, '').trim())
+        .filter(s => s.length > 0 && !TEMPLATE_TEXT.test(s))
+
+      if (!texts.length) continue
+
+      if (isTitle) titleTexts.push(...texts)
+      else bodyTexts.push(...texts)
+    }
+
+    if (!titleTexts.length && !bodyTexts.length) continue
+
+    const titleStr = titleTexts.join(' ').trim() || `Diapositiva ${i + 1}`
+    output += `## ${titleStr}\n\n`
+
+    // Deduplicate body against title and against itself
+    const titleSet = new Set(titleTexts.map(t => t.toLowerCase()))
+    const seen = new Set()
+    for (const text of bodyTexts) {
+      const lower = text.toLowerCase()
+      if (titleSet.has(lower) || seen.has(lower)) continue
+      seen.add(lower)
+      output += `- ${text}\n`
     }
     output += '\n'
   }
 
-  return output
+  return output.trim()
 }
 
 export async function convertHTML(file, onProgress) {
-  onProgress(20, 'Reading HTML…')
+  onProgress(20, 'Leyendo HTML…')
   const text = await file.text()
-  onProgress(55, 'Converting to Markdown…')
+  onProgress(55, 'Convirtiendo a Markdown…')
   return makeTurndown().turndown(text)
 }
 
 export async function convertRTF(file, onProgress) {
-  onProgress(20, 'Parsing RTF…')
+  onProgress(20, 'Analizando RTF…')
   const text = await file.text()
 
   const clean = text
     .replace(/\{\\rtf[^}]*\}/g, '')
+    .replace(/\\par\b/g, '\n')
+    .replace(/\\pard\b/g, '\n')
+    .replace(/\\sect\b/g, '\n\n---\n\n')
     .replace(/\\[a-z]+\-?\d*[ ]?/gi, ' ')
     .replace(/\{|\}/g, '')
     .replace(/\\\*/g, '')
@@ -305,11 +378,11 @@ export async function convertRTF(file, onProgress) {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
-  return `# Document\n\n${clean}`
+  return `# Documento\n\n${clean}`
 }
 
 export async function convertCode(file, ext, onProgress) {
-  onProgress(30, 'Reading source file…')
+  onProgress(30, 'Leyendo archivo fuente…')
   const text = await file.text()
   const lang = CODE_LANG_MAP[ext] || ext
   return `# ${file.name}\n\n\`\`\`${lang}\n${text}\n\`\`\``
@@ -323,11 +396,11 @@ export function convertImage(file) {
     '',
     `![${name}](${file.name})`,
     '',
-    '> **Note:** Image files cannot have text extracted without OCR.',
+    '> **Nota:** Las imágenes no pueden tener texto extraído sin OCR.',
     '',
-    `**File:** \`${file.name}\`  `,
-    `**Type:** ${(file.type || ext).toUpperCase()}  `,
-    `**Size:** ${formatSize(file.size)}`,
+    `**Archivo:** \`${file.name}\`  `,
+    `**Tipo:** ${(file.type || ext).toUpperCase()}  `,
+    `**Tamaño:** ${formatSize(file.size)}`,
   ].join('\n')
 }
 
@@ -347,7 +420,6 @@ export function getExt(file) {
 
 export async function dispatchConversion(file, onProgress) {
   const ext = getExt(file)
-
   const getArrayBuffer = () => file.arrayBuffer()
 
   switch (ext) {
@@ -378,20 +450,20 @@ export async function dispatchConversion(file, onProgress) {
     case 'md':
     case 'mdx':
     case 'txt': {
-      onProgress(50, 'Reading file…')
+      onProgress(50, 'Leyendo archivo…')
       return file.text()
     }
 
     default:
       if (IMAGE_EXTS.includes(ext)) {
-        onProgress(100, 'Done')
+        onProgress(100, 'Listo')
         return convertImage(file)
       }
       if (CODE_LANG_MAP[ext]) {
         return convertCode(file, ext, onProgress)
       }
       throw new Error(
-        `Unsupported format: .${ext}\n\nSupported: PDF, DOCX, XLSX, CSV, PPTX, HTML, TXT, MD, RTF, images, and source code files.`
+        `Formato no soportado: .${ext}\n\nFormatos compatibles: PDF, DOCX, XLSX, CSV, PPTX, HTML, TXT, MD, RTF, imágenes y archivos de código fuente.`
       )
   }
 }

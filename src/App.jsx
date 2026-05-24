@@ -2,24 +2,27 @@ import './App.css'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  FileText, File, Table, Globe, Hash, AlignLeft, Image, Code2, Code,
+  FileText, File, Table, Hash, AlignLeft, Image, Code2, Code,
   Layers, Download, Copy, Check, X, Lock, AlertCircle, CheckCircle,
-  Eye, Terminal, HelpCircle,
+  Eye, Terminal, HelpCircle, Wand2,
 } from 'lucide-react'
 import { marked } from 'marked'
-import { dispatchConversion, formatSize, getExt } from './converters'
+import {
+  dispatchConversion, formatSize, getExt,
+  detectRedundancies, cleanRedundancies,
+} from './converters'
 
 // ── DESIGN TOKENS ────────────────────────────────────────────
 const FORMATS = [
-  { ext: 'PDF',    color: '#ff6b6b', Icon: FileText  },
-  { ext: 'DOCX',   color: '#da8a67', Icon: FileText  },
-  { ext: 'XLSX',   color: '#4ecb8d', Icon: Table     },
-  { ext: 'CSV',    color: '#68d4b5', Icon: Table     },
-  { ext: 'PPTX',   color: '#f2c384', Icon: Layers    },
-  { ext: 'HTML',   color: '#b87333', Icon: Code      },
-  { ext: 'RTF',    color: '#d4956a', Icon: File      },
-  { ext: 'MD',     color: '#b87333', Icon: Hash      },
-  { ext: 'TXT',    color: '#8a7a6e', Icon: AlignLeft },
+  { ext: 'PDF',      color: '#ff6b6b', Icon: FileText  },
+  { ext: 'DOCX',     color: '#da8a67', Icon: FileText  },
+  { ext: 'XLSX',     color: '#4ecb8d', Icon: Table     },
+  { ext: 'CSV',      color: '#68d4b5', Icon: Table     },
+  { ext: 'PPTX',     color: '#f2c384', Icon: Layers    },
+  { ext: 'HTML',     color: '#b87333', Icon: Code      },
+  { ext: 'RTF',      color: '#d4956a', Icon: File      },
+  { ext: 'MD',       color: '#b87333', Icon: Hash      },
+  { ext: 'TXT',      color: '#8a7a6e', Icon: AlignLeft },
   { ext: 'Imágenes', color: '#da8a67', Icon: Image     },
   { ext: 'Código',   color: '#e8b48a', Icon: Code2     },
 ]
@@ -95,6 +98,84 @@ function Particles() {
   )
 }
 
+// ── PUMPKIN LOGO ─────────────────────────────────────────────
+function PumpkinLogo() {
+  const [laughing, setLaughing] = useState(false)
+  return (
+    <span
+      className={`logo-pumpkin${laughing ? ' laughing' : ''}`}
+      onMouseEnter={() => setLaughing(true)}
+      onMouseLeave={() => setLaughing(false)}
+      aria-label="Calabaza siniestra"
+      role="img"
+    >
+      <svg
+        className="pumpkin-svg"
+        viewBox="0 0 52 58"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Stem */}
+        <path
+          d="M26 9 C25 9 22 4 29 2"
+          stroke="#3d6b42"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        />
+        {/* Pumpkin body — overlapping ellipses create ribbed look */}
+        <ellipse cx="10" cy="36" rx="10" ry="17" fill="#8c2d08"/>
+        <ellipse cx="19" cy="36" rx="13" ry="19" fill="#b83a10"/>
+        <ellipse cx="26" cy="36" rx="12" ry="20" fill="#cc4d18"/>
+        <ellipse cx="33" cy="36" rx="13" ry="19" fill="#b83a10"/>
+        <ellipse cx="42" cy="36" rx="10" ry="17" fill="#8c2d08"/>
+        {/* Highlight */}
+        <ellipse cx="20" cy="28" rx="5" ry="4" fill="rgba(255,180,120,0.12)"/>
+        {/* Outer glow ring */}
+        <ellipse
+          cx="26" cy="36" rx="24" ry="21"
+          fill="none"
+          stroke="rgba(255,90,0,0.18)"
+          strokeWidth="1"
+        />
+
+        {/* Eyes — normal (sinister inverted triangles) */}
+        <g className="pumpkin-eyes-normal">
+          <polygon points="18,28 13,36 23,36" fill="#1a0800"/>
+          <polygon points="34,28 29,36 39,36" fill="#1a0800"/>
+        </g>
+
+        {/* Eyes — laughing (X marks) */}
+        <g className="pumpkin-eyes-laugh">
+          <line x1="13" y1="28" x2="23" y2="36" stroke="#1a0800" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="23" y1="28" x2="13" y2="36" stroke="#1a0800" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="29" y1="28" x2="39" y2="36" stroke="#1a0800" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="39" y1="28" x2="29" y2="36" stroke="#1a0800" strokeWidth="2.5" strokeLinecap="round"/>
+        </g>
+
+        {/* Mouth — normal (jagged sinister grin) */}
+        <g className="pumpkin-mouth-normal">
+          <path
+            d="M15 43 L19 39 L22 43 L26 38 L30 43 L33 39 L37 43"
+            stroke="#1a0800"
+            strokeWidth="2"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </g>
+
+        {/* Mouth — laughing (wide open with teeth) */}
+        <g className="pumpkin-mouth-laugh">
+          <path d="M14 41 Q26 55 38 41 Z" fill="#1a0800"/>
+          <line x1="19" y1="42" x2="19" y2="48" stroke="#d4b090" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="26" y1="41" x2="26" y2="49" stroke="#d4b090" strokeWidth="2.5" strokeLinecap="round"/>
+          <line x1="33" y1="42" x2="33" y2="48" stroke="#d4b090" strokeWidth="2.5" strokeLinecap="round"/>
+        </g>
+      </svg>
+    </span>
+  )
+}
+
 // ── ANIMATED NUMBER ──────────────────────────────────────────
 function AnimatedNumber({ value }) {
   const [display, setDisplay] = useState(0)
@@ -111,8 +192,8 @@ function AnimatedNumber({ value }) {
 
     function tick(now) {
       if (!startTime) startTime = now
-      const t      = Math.min((now - startTime) / duration, 1)
-      const eased  = 1 - Math.pow(1 - t, 3)
+      const t     = Math.min((now - startTime) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
       setDisplay(Math.round(origin + (target - origin) * eased))
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick)
@@ -165,6 +246,103 @@ function Toast({ toast }) {
   )
 }
 
+// ── REDUNDANCY MODAL ─────────────────────────────────────────
+function RedundancyModal({ redundancies, selected, onToggle, onSelectAll, onClean, onDismiss }) {
+  const removedLines = redundancies
+    .filter(r => selected.has(r.text))
+    .reduce((sum, r) => sum + r.count, 0)
+  const allSelected = selected.size === redundancies.length
+
+  return (
+    <motion.div
+      className="modal-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      onClick={onDismiss}
+    >
+      <motion.div
+        className="modal-card"
+        initial={{ opacity: 0, y: 24, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.97 }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div className="modal-title-wrap">
+            <span className="modal-broom" aria-hidden="true">🧹</span>
+            <div>
+              <h2 className="modal-title">Redundancias detectadas</h2>
+              <p className="modal-subtitle">
+                {redundancies.length} patrón{redundancies.length !== 1 ? 'es' : ''} repetido{redundancies.length !== 1 ? 's' : ''} en el documento
+              </p>
+            </div>
+          </div>
+          <button className="modal-close-btn" onClick={onDismiss} aria-label="Cerrar">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="modal-select-all-row">
+          <label className="modal-select-all-label">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={onSelectAll}
+            />
+            Seleccionar todo
+          </label>
+          <span className="modal-count-hint">
+            {selected.size} seleccionado{selected.size !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        <div className="redundancy-list">
+          {redundancies.map(r => (
+            <label
+              key={r.text}
+              className={`redundancy-item${selected.has(r.text) ? ' checked' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(r.text)}
+                onChange={() => onToggle(r.text)}
+              />
+              <span className="redundancy-text">
+                {r.text.length > 72 ? r.text.slice(0, 72) + '…' : r.text}
+              </span>
+              <span className="redundancy-badge">×{r.count.toLocaleString()}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="modal-footer">
+          <span className="modal-summary">
+            {selected.size > 0
+              ? `Eliminar ~${removedLines.toLocaleString()} líneas`
+              : 'Selecciona patrones para eliminar'}
+          </span>
+          <div className="modal-actions">
+            <button className="btn-modal-dismiss" onClick={onDismiss}>
+              Mantener original
+            </button>
+            <button
+              className="btn-modal-clean"
+              onClick={onClean}
+              disabled={selected.size === 0}
+            >
+              <Wand2 size={13} />
+              Limpiar
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 // ── DOCUMENT ILLUSTRATION ────────────────────────────────────
 function DocumentIllustration({ dragging }) {
   return (
@@ -175,32 +353,21 @@ function DocumentIllustration({ dragging }) {
       viewBox="0 0 80 96"
       fill="none"
       aria-hidden="true"
-      animate={dragging
-        ? { y: -6, scale: 1.05 }
-        : { y: [0, -7, 0] }
-      }
+      animate={dragging ? { y: -6, scale: 1.05 } : { y: [0, -7, 0] }}
       transition={dragging
         ? { duration: 0.25, ease: 'easeOut' }
         : { duration: 3.2, repeat: Infinity, ease: 'easeInOut' }
       }
     >
-      <rect
-        x="8" y="4" width="56" height="72" rx="6"
-        fill="rgba(184,115,51,0.07)"
-        stroke="rgba(184,115,51,0.22)"
-        strokeWidth="1.5"
-      />
-      <path d="M49 4 L64 19" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5" />
-      <path
-        d="M49 4 L49 19 L64 19"
-        fill="rgba(184,115,51,0.05)"
-        stroke="rgba(184,115,51,0.22)"
-        strokeWidth="1.5"
-      />
-      <line x1="18" y1="33" x2="54" y2="33" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="18" y1="43" x2="54" y2="43" stroke="rgba(184,115,51,0.15)" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="18" y1="53" x2="42" y2="53" stroke="rgba(184,115,51,0.10)" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="18" y1="63" x2="36" y2="63" stroke="rgba(184,115,51,0.07)" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="8" y="4" width="56" height="72" rx="6"
+        fill="rgba(184,115,51,0.07)" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5"/>
+      <path d="M49 4 L64 19" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5"/>
+      <path d="M49 4 L49 19 L64 19"
+        fill="rgba(184,115,51,0.05)" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5"/>
+      <line x1="18" y1="33" x2="54" y2="33" stroke="rgba(184,115,51,0.22)" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="18" y1="43" x2="54" y2="43" stroke="rgba(184,115,51,0.15)" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="18" y1="53" x2="42" y2="53" stroke="rgba(184,115,51,0.10)" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="18" y1="63" x2="36" y2="63" stroke="rgba(184,115,51,0.07)" strokeWidth="1.5" strokeLinecap="round"/>
       {dragging && (
         <motion.g
           initial={{ opacity: 0, y: 6 }}
@@ -296,7 +463,7 @@ function FileDropzone({ file, status, progress, progressMsg, onFile, onRemove })
 
   const wrapCls = [
     'dropzone-wrap',
-    dragging    ? 'dragging'   : '',
+    dragging     ? 'dragging'   : '',
     isConverting ? 'converting' : '',
   ].filter(Boolean).join(' ')
 
@@ -458,7 +625,7 @@ function OutputPanel({ output, file, onDownload, onCopy, copied }) {
             {tab === 'raw' ? (
               <motion.div
                 key="raw"
-                style={{ flex: 1, overflow: 'hidden', display: 'flex' }}
+                className="output-content-area"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -469,7 +636,7 @@ function OutputPanel({ output, file, onDownload, onCopy, copied }) {
             ) : (
               <motion.div
                 key="preview"
-                style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+                className="output-content-area"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -509,13 +676,17 @@ function OutputPanel({ output, file, onDownload, onCopy, copied }) {
 
 // ── APP ───────────────────────────────────────────────────────
 export default function App() {
-  const [file,        setFile]        = useState(null)
-  const [output,      setOutput]      = useState('')
-  const [status,      setStatus]      = useState('idle')
-  const [progress,    setProgress]    = useState(0)
-  const [progressMsg, setProgressMsg] = useState('')
-  const [toast,       setToast]       = useState(null)
-  const [copied,      setCopied]      = useState(false)
+  const [file,             setFile]             = useState(null)
+  const [output,           setOutput]           = useState('')
+  const [status,           setStatus]           = useState('idle')
+  const [progress,         setProgress]         = useState(0)
+  const [progressMsg,      setProgressMsg]      = useState('')
+  const [toast,            setToast]            = useState(null)
+  const [copied,           setCopied]           = useState(false)
+  const [redundancies,     setRedundancies]     = useState([])
+  const [showRedModal,     setShowRedModal]     = useState(false)
+  const [selectedPatterns, setSelectedPatterns] = useState(new Set())
+
   const toastTimer  = useRef(null)
   const copiedTimer = useRef(null)
 
@@ -531,6 +702,8 @@ export default function App() {
     setStatus('converting')
     setProgress(0)
     setProgressMsg('Iniciando…')
+    setShowRedModal(false)
+    setRedundancies([])
 
     try {
       const result = await dispatchConversion(f, (pct, msg) => {
@@ -541,6 +714,14 @@ export default function App() {
       setStatus('done')
       setProgress(100)
       showToast('¡Conversión completada!', 'success')
+
+      // Check for repeated content
+      const found = detectRedundancies(result)
+      if (found.length > 0) {
+        setRedundancies(found)
+        setSelectedPatterns(new Set(found.map(r => r.text)))
+        setShowRedModal(true)
+      }
     } catch (err) {
       setStatus('idle')
       showToast(err.message || 'La conversión falló. Por favor intenta con otro archivo.')
@@ -552,6 +733,8 @@ export default function App() {
     setOutput('')
     setStatus('idle')
     setProgress(0)
+    setShowRedModal(false)
+    setRedundancies([])
   }, [])
 
   const handleDownload = useCallback(() => {
@@ -578,6 +761,31 @@ export default function App() {
     }
   }, [output, showToast])
 
+  const handleTogglePattern = useCallback(text => {
+    setSelectedPatterns(prev => {
+      const next = new Set(prev)
+      if (next.has(text)) next.delete(text)
+      else next.add(text)
+      return next
+    })
+  }, [])
+
+  const handleSelectAllPatterns = useCallback(() => {
+    setSelectedPatterns(prev =>
+      prev.size === redundancies.length
+        ? new Set()
+        : new Set(redundancies.map(r => r.text))
+    )
+  }, [redundancies])
+
+  const handleCleanRedundancies = useCallback(() => {
+    const cleaned = cleanRedundancies(output, Array.from(selectedPatterns))
+    setOutput(cleaned)
+    setShowRedModal(false)
+    setRedundancies([])
+    showToast('¡Redundancias eliminadas!', 'success')
+  }, [output, selectedPatterns, showToast])
+
   const fadeUp = {
     hidden:  { opacity: 0, y: 18 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
@@ -595,7 +803,7 @@ export default function App() {
           variants={{ visible: { transition: { staggerChildren: 0.09 } } }}
         >
           <motion.div className="logo" variants={fadeUp}>
-            <div className="logo-diamond" />
+            <PumpkinLogo />
             <span>
               <span className="logo-cobre">Cobre</span>
               <span className="logo-sep"> · </span>
@@ -668,6 +876,19 @@ export default function App() {
       </div>
 
       <Toast toast={toast} />
+
+      <AnimatePresence>
+        {showRedModal && (
+          <RedundancyModal
+            redundancies={redundancies}
+            selected={selectedPatterns}
+            onToggle={handleTogglePattern}
+            onSelectAll={handleSelectAllPatterns}
+            onClean={handleCleanRedundancies}
+            onDismiss={() => setShowRedModal(false)}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
