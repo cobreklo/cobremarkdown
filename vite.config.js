@@ -14,6 +14,12 @@ export default defineConfig({
       mammoth: resolve(__dirname, 'node_modules/mammoth/mammoth.browser.min.js'),
     },
   },
+  worker: {
+    // Workers use dynamic import() for code splitting, so they must be
+    // bundled as ES modules. The default "iife" format is incompatible
+    // with multi-chunk output and causes the Vercel build to fail.
+    format: 'es',
+  },
   optimizeDeps: {
     // pdfjs-dist has its own worker and is large — exclude from pre-bundling
     // so Vite doesn't try to inline it. It loads as a lazy chunk on demand.
