@@ -7,7 +7,15 @@
       "Bash(node -e \"const fs=require\\('fs'\\); const pkg=JSON.parse\\(fs.readFileSync\\('package.json'\\)\\); console.log\\('deps:', Object.keys\\(pkg.dependencies\\).join\\(', '\\)\\)\")",
       "PowerShell($paths = @\\(\"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\",\"C:\\\\Program Files \\(x86\\)\\\\nodejs\\\\npm.cmd\",\"$env:APPDATA\\\\npm\\\\npm.cmd\",\"$env:LOCALAPPDATA\\\\Programs\\\\nodejs\\\\npm.cmd\"\\); foreach\\($p in $paths\\){if\\(Test-Path $p\\){Write-Output $p; break}})",
       "PowerShell(cd \"C:\\\\Users\\\\lethe\\\\OneDrive\\\\Desktop\\\\markdownitpobrechan\"; $job = Start-Job { & \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" run dev 2>&1 }; Start-Sleep -Seconds 8; Receive-Job $job; Stop-Job $job; Remove-Job $job)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\lethe\\\\OneDrive\\\\Desktop\\\\markdownitpobrechan\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npm install *)"
     ]
   }
 }

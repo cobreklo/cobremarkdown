@@ -689,6 +689,19 @@ export default function App() {
 
   const toastTimer  = useRef(null)
   const copiedTimer = useRef(null)
+  const workerRef   = useRef(null)
+
+  // Formats processed off the main thread to keep the UI responsive
+  const WORKER_FORMATS = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx'])
+
+  useEffect(() => {
+    const w = new Worker(
+      new URL('./workers/converter.worker.js', import.meta.url),
+      { type: 'module' }
+    )
+    workerRef.current = w
+    return () => w.terminate()
+  }, [])
 
   const showToast = useCallback((msg, type = 'error') => {
     clearTimeout(toastTimer.current)
@@ -706,16 +719,42 @@ export default function App() {
     setRedundancies([])
 
     try {
-      const result = await dispatchConversion(f, (pct, msg) => {
-        setProgress(pct)
-        setProgressMsg(msg)
-      })
+      const ext = getExt(f)
+      let result
+
+      if (WORKER_FORMATS.has(ext) && workerRef.current) {
+        // Run heavy conversions in the worker to avoid blocking the UI
+        const buffer = await f.arrayBuffer()
+        result = await new Promise((resolve, reject) => {
+          const worker = workerRef.current
+          const handler = ({ data }) => {
+            if (data.type === 'progress') {
+              setProgress(data.pct)
+              setProgressMsg(data.msg)
+            } else if (data.type === 'done') {
+              worker.removeEventListener('message', handler)
+              resolve(data.result)
+            } else if (data.type === 'error') {
+              worker.removeEventListener('message', handler)
+              reject(new Error(data.message))
+            }
+          }
+          worker.addEventListener('message', handler)
+          // Transfer the ArrayBuffer to avoid copying ~N MB across the boundary
+          worker.postMessage({ format: ext, buffer, fileName: f.name }, [buffer])
+        })
+      } else {
+        result = await dispatchConversion(f, (pct, msg) => {
+          setProgress(pct)
+          setProgressMsg(msg)
+        })
+      }
+
       setOutput(result)
       setStatus('done')
       setProgress(100)
       showToast('¡Conversión completada!', 'success')
 
-      // Check for repeated content
       const found = detectRedundancies(result)
       if (found.length > 0) {
         setRedundancies(found)

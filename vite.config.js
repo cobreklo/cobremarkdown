@@ -15,6 +15,8 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['xlsx', 'turndown', 'jszip', 'marked'],
+    // pdfjs-dist has its own worker and is large — exclude from pre-bundling
+    // so Vite doesn't try to inline it. It loads as a lazy chunk on demand.
+    exclude: ['pdfjs-dist'],
   },
 })

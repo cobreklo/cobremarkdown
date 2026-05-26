@@ -1,14 +1,10 @@
 /**
  * converters.js — all file-to-markdown conversion logic.
  *
- * PDF.js is loaded via <script> in index.html (window.pdfjsLib).
- * mammoth is aliased to its browser build in vite.config.js.
- * All other libs are standard npm ESM imports.
+ * All heavy libraries (pdfjs-dist, mammoth, xlsx, jszip, turndown) are
+ * loaded on-demand with dynamic import() so they never block the initial
+ * page render.
  */
-import mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
-import TurndownService from 'turndown'
-import JSZip from 'jszip'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -46,10 +42,10 @@ export function detectRedundancies(text) {
 
   for (const raw of lines) {
     const norm = raw.trim()
-    if (norm.length < 8) continue            // too short to be meaningful
-    if (/^#{1,6}\s/.test(norm)) continue     // heading
-    if (/^[-*_]{3,}$/.test(norm)) continue  // horizontal rule
-    if (/^\|[-:\s|]+\|$/.test(norm)) continue // table separator
+    if (norm.length < 8) continue
+    if (/^#{1,6}\s/.test(norm)) continue
+    if (/^[-*_]{3,}$/.test(norm)) continue
+    if (/^\|[-:\s|]+\|$/.test(norm)) continue
     counts.set(norm, (counts.get(norm) || 0) + 1)
   }
 
@@ -80,25 +76,25 @@ export function cleanRedundancies(text, patterns) {
   return out.join('\n')
 }
 
-/* ── PDF.js (via window global) ─────────────────────────── */
+/* ── PDF.js (lazy, via npm) ─────────────────────────────── */
 
-function getPdfjs() {
-  const lib = window.pdfjsLib
-  if (!lib) {
-    throw new Error(
-      'PDF.js no cargó. Verifica tu conexión y recarga la página.'
-    )
-  }
-  if (!lib.GlobalWorkerOptions.workerSrc) {
-    lib.GlobalWorkerOptions.workerSrc =
-      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
-  }
-  return lib
+// Cached module reference shared within this realm (main thread or worker).
+let _pdfjsLib = null
+
+async function getPdfjs() {
+  if (_pdfjsLib) return _pdfjsLib
+  _pdfjsLib = await import('pdfjs-dist')
+  // The nested PDF rendering worker still comes from the CDN so Vite doesn't
+  // need to bundle the worker script itself.
+  _pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+  return _pdfjsLib
 }
 
-/* ── Turndown factory ───────────────────────────────────── */
+/* ── Turndown factory (lazy) ────────────────────────────── */
 
-function makeTurndown() {
+async function makeTurndown() {
+  const { default: TurndownService } = await import('turndown')
   const td = new TurndownService({
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',
@@ -132,11 +128,10 @@ function makeTurndown() {
 /* ── Converters ─────────────────────────────────────────── */
 
 export async function convertPDF(arrayBuffer, onProgress) {
-  const pdfjsLib = getPdfjs()
+  const pdfjsLib = await getPdfjs()
   const data = new Uint8Array(arrayBuffer)
   const pdf = await pdfjsLib.getDocument({ data }).promise
   const totalPages = pdf.numPages
-  // Only add a title header for multi-page documents
   let output = totalPages > 1 ? '# Documento\n\n' : ''
 
   for (let i = 1; i <= totalPages; i++) {
@@ -145,7 +140,6 @@ export async function convertPDF(arrayBuffer, onProgress) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
 
-    // Compact page divider instead of a heading per page
     if (i > 1) output += '\n---\n\n'
 
     let pageText = ''
@@ -170,7 +164,6 @@ export async function convertPDF(arrayBuffer, onProgress) {
       }
       prevWasEmpty = false
 
-      // Heading: ALL-CAPS standalone line, reasonable length, no numbers/symbols only
       const isHeading =
         line.length > 3 &&
         line.length < 60 &&
@@ -191,23 +184,18 @@ export async function convertPDF(arrayBuffer, onProgress) {
 
 export async function convertDOCX(arrayBuffer, onProgress) {
   onProgress(10, 'Leyendo documento Word…')
-
-  if (typeof mammoth?.convertToHtml !== 'function') {
-    throw new Error('mammoth no cargó. Intenta recargar la página.')
-  }
-
+  const { default: mammoth } = await import('mammoth')
   const result = await mammoth.convertToHtml({ arrayBuffer })
   onProgress(55, 'Convirtiendo HTML → Markdown…')
-
-  const markdown = makeTurndown().turndown(result.value)
+  const td = await makeTurndown()
+  const markdown = td.turndown(result.value)
   onProgress(95, 'Finalizando…')
-
   return markdown
 }
 
 export async function convertXLSX(arrayBuffer, onProgress) {
   onProgress(15, 'Leyendo hoja de cálculo…')
-
+  const XLSX = await import('xlsx')
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheetNames = workbook.SheetNames
   let output = ''
@@ -285,7 +273,7 @@ export async function convertCSV(file, onProgress) {
 
 export async function convertPPTX(arrayBuffer, onProgress) {
   onProgress(10, 'Abriendo archivo PPTX…')
-
+  const { default: JSZip } = await import('jszip')
   const zip = await JSZip.loadAsync(arrayBuffer)
 
   const slideKeys = Object.keys(zip.files)
@@ -298,11 +286,8 @@ export async function convertPPTX(arrayBuffer, onProgress) {
 
   if (!slideKeys.length) throw new Error('No se encontraron diapositivas en este archivo PPTX.')
 
-  // Placeholder types to skip (footers, slide numbers, dates)
   const SKIP_PH = /type="(sldNum|dt|ftr|hf|sldImg)"/
-  // Title placeholder types
   const TITLE_PH = /type="(title|ctrTitle)"/
-  // PowerPoint template boilerplate text to discard
   const TEMPLATE_TEXT = /^(click\s+to|tap\s+to|haga\s+clic|añade?\s|add\s+(title|text|subtitle|content)|title\s*\d*|text\s*\d*|content\s*\d*)$/i
 
   let output = '# Presentación\n\n'
@@ -314,7 +299,6 @@ export async function convertPPTX(arrayBuffer, onProgress) {
     )
 
     const xml = await zip.files[slideKeys[i]].async('text')
-    // Extract each shape block
     const spBlocks = xml.match(/<p:sp[\s\S]*?<\/p:sp>/g) || []
 
     const titleTexts = []
@@ -340,7 +324,6 @@ export async function convertPPTX(arrayBuffer, onProgress) {
     const titleStr = titleTexts.join(' ').trim() || `Diapositiva ${i + 1}`
     output += `## ${titleStr}\n\n`
 
-    // Deduplicate body against title and against itself
     const titleSet = new Set(titleTexts.map(t => t.toLowerCase()))
     const seen = new Set()
     for (const text of bodyTexts) {
@@ -359,7 +342,8 @@ export async function convertHTML(file, onProgress) {
   onProgress(20, 'Leyendo HTML…')
   const text = await file.text()
   onProgress(55, 'Convirtiendo a Markdown…')
-  return makeTurndown().turndown(text)
+  const td = await makeTurndown()
+  return td.turndown(text)
 }
 
 export async function convertRTF(file, onProgress) {
